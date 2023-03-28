@@ -1,8 +1,8 @@
 import * as core from '@actions/core';
-import {downloadTool, extractTar, cacheDir} from '@actions/tool-cache';
-import {exec} from 'child_process';
+import { downloadTool, extractTar, cacheDir } from '@actions/tool-cache';
+import { exec } from 'child_process';
 import * as fs from 'fs';
-import {promisify} from 'util';
+import { promisify } from 'util';
 
 const writeFile = promisify(fs.writeFile);
 
@@ -52,16 +52,30 @@ async function setup() {
 
   // Setup self ssh connection.
   // Fix permission issues: https://github.community/t/ssh-test-using-github-action/166717/12
-  const cmd = `chmod g-w $HOME                  &&
-chmod o-w $HOME                                 &&
-ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa        &&
-cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys &&
-chmod 0600 ~/.ssh/authorized_keys               &&
-ssh-keyscan -H localhost >> ~/.ssh/known_hosts  &&
-chmod 0600 ~/.ssh/known_hosts                   &&
-eval \`ssh-agent\`                              &&
-ssh-add ~/.ssh/id_rsa
-`;
+  let cmd;
+  if (process.platform === 'win32') {
+    cmd = `icacls $HOME /remove "BUILTIN\\Users" /inheritance:r /grant:r "\`"NT AUTHORITY\\Authenticated Users\`":(CI)(OI)(RX)" &&
+        New-Item -ItemType Directory -Path $HOME\\.ssh &&
+        New-Item -ItemType File -Path $HOME\\.ssh\\authorized_keys &&
+        Set-Content -Path $HOME\\.ssh\\authorized_keys -Value (Get-Content $HOME\\.ssh\\id_rsa.pub) &&
+        icacls $HOME\\.ssh\\authorized_keys /inheritance:r /grant:r "\`"NT AUTHORITY\\Authenticated Users\`":(CI)(OI)(R)" &&
+        New-Item -ItemType File -Path $HOME\\.ssh\\known_hosts &&
+        ssh-keyscan -H localhost | Out-File -FilePath $HOME\\.ssh\\known_hosts &&
+        icacls $HOME\\.ssh\\known_hosts /inheritance:r /grant:r "\`"NT AUTHORITY\\Authenticated Users\`":(CI)(OI)(R)" &&
+        Start-Process ssh-agent &&
+        ssh-add $HOME\\.ssh\\id_rsa`;
+  } else {
+    cmd = `chmod g-w $HOME                  &&
+          chmod o-w $HOME                                 &&
+          ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa        &&
+          cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys &&
+          chmod 0600 ~/.ssh/authorized_keys               &&
+          ssh-keyscan -H localhost >> ~/.ssh/known_hosts  &&
+          chmod 0600 ~/.ssh/known_hosts                   &&
+          eval \`ssh-agent\`                              &&
+          ssh-add ~/.ssh/id_rsa`;
+  }
+
   exec(cmd, (err: any, stdout: any, stderr: any) => {
     core.info(stdout);
     core.warning(stderr);
